@@ -1,10 +1,10 @@
 # applenotary
 
-This tool is designed to synchronously notarize your macOS app with Apple. This is very barebones right now, pull requests appreciated.
+This tool is designed to synchronously notarize your macOS app with Apple and then staple the provided file. This is very barebones right now, pull requests appreciated.
 
-I'm not providing a binary for now, you will need to clone the project and compile it yourself.
+I'm not providing a binary for now, you will need to clone the project and compile it yourself. You can compile it using `swift build` or `swift build -c release` in the cloned directory. There are other build configurations that may be appropriate for you.
 
-Example:
+Here is a usage example of the tool after having built it:
 
 `./applenotary -f myApp.dmg -b com.my.app -u my@apple.id -p mypassword -s myApp.dmg`
 
