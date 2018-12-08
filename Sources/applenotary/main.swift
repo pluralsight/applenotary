@@ -1,7 +1,6 @@
 import CommandLineKit
 import Foundation
 
-//result = `xcrun altool -t osx -f Pluralsight.zip --primary-bundle-id com.pluralsight.pluralsight-mac -u iosdevteam@pluralsight.com -p 3m69k7C5YsN7 --notarize-app`
 var flags = Flags()
 
 let stapleFilePath = flags.string("s", "filePathToStaple", description: "the executable that needs to the notarization stapled to")
