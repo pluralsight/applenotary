@@ -1,12 +1,15 @@
-// swift-tools-version:4.2
+// swift-tools-version:5.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
     name: "applenotary",
+    platforms: [
+        .macOS(.v10_12)
+    ],
     dependencies: [
-        .package(url: "https://github.com/objecthub/swift-commandlinekit", from: "0.2.4"),
+        .package(url: "https://github.com/objecthub/swift-commandlinekit", from: "0.3.0"),
     ],
     targets: [
         .target(
@@ -15,5 +18,6 @@ let package = Package(
         .testTarget(
             name: "applenotaryTests",
             dependencies: ["applenotary"]),
-    ]
+    ],
+    swiftLanguageVersions: [.v5]
 )
