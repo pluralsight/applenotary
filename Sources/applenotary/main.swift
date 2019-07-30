@@ -3,7 +3,6 @@ import Foundation
 
 var flags = Flags()
 
-let stapleFilePath = flags.string("s", "filePathToStaple", description: "the executable that needs to the notarization stapled to")
 let filePath = flags.string("f", "filePathToNotarize", description: "zip or pkg to upload for notarization")
 let primaryBundleId = flags.string("b", "primary-bundle-id", description: "The primary bundle id of the app being notarized")
 let username = flags.string("u", "username", description: "username for the apple id being used to notarize")
@@ -12,14 +11,13 @@ let help = flags.option("h", "help", description: "provides this...")
 
 func main() {
     validate()
-    if let stapleFilePath = stapleFilePath.value,
-        let filePath = filePath.value,
+    if  let filePath = filePath.value,
         let primaryBundleId = primaryBundleId.value,
         let username = username.value,
         let password = password.value
     {
-        let notarize = Notarize(file: filePath, stapleFile: stapleFilePath, bundleID: primaryBundleId, username: username, password: password)
-        notarize.uploadAndStaple()
+        let notarize = Notarize(bundleID: primaryBundleId, username: username, password: password)
+        notarize.uploadAndStaple(filePath: filePath)
     } else {
         print("validation failed, one of the parameters is empty")
     }
@@ -54,16 +52,8 @@ func validate() {
         print("password must be set... for now")
         exit(1)
     }
-    
-    guard stapleFilePath.wasSet else {
-        print("stapleFilePath must be set")
-        exit(1)
-    }
 }
 
 print("🎬")
 main()
 print("🏁")
-
-
-

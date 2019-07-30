@@ -8,27 +8,30 @@
 import Foundation
 
 class Notarize {
-    let file: String
-    let stapleFile: String
     let bundleID: String
     let username: String
     let password: String
 
-    required init(file: String, stapleFile: String, bundleID: String, username: String, password: String) {
-        self.file = file
-        self.stapleFile = stapleFile
+    required init(bundleID: String, username: String, password: String) {
         self.bundleID = bundleID
         self.username = username
         self.password = password
     }
 
-    func uploadAndStaple() {
-        let notarizeUploadResponse = upload()
+    func uploadAndStaple(filePath: String) {
+        var uploadPath = filePath
+        let stapleFilePath = filePath
+
+        let ext = NSURL(fileURLWithPath: uploadPath).pathExtension
+        if ext == "app" {
+            uploadPath = zip(filePath: uploadPath)
+        }
+
+        let notarizeUploadResponse = upload(filePath: uploadPath)
 
         if let uuid = notarizeUploadResponse.notarizationUpload?.RequestUUID {
             print("start observing status")
-
-            waitForProcessing(with: uuid, username: username, password: password)
+            waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
         } else {
             print("show errors")
             notarizeUploadResponse.productErrors?.forEach { error in
@@ -39,13 +42,13 @@ class Notarize {
         }
     }
 
-    func upload() -> NotarizeUploadResponse {
+    private func upload(filePath: String) -> NotarizeUploadResponse {
         let task = Process()
         task.launchPath = "/usr/bin/env"
         task.arguments = [
             "xcrun", "altool",
             "-t", "osx",
-            "-f", file,
+            "-f", filePath,
             "--primary-bundle-id", bundleID,
             "-u", username,
             "-p", password,
@@ -67,7 +70,7 @@ class Notarize {
         return note
     }
 
-    func staple(file: String) {
+    private func staple(filePath: String) {
         print("stapling")
         sleep(5) //give apple a few to be read to staple
         //xcrun stapler staple Pluralsight\ -\ Beta.app
@@ -76,7 +79,7 @@ class Notarize {
         task.launchPath = "/usr/bin/env"
         task.arguments = [
             "xcrun", "stapler",
-            "staple", file
+            "staple", filePath
         ]
 
         let outpipe = Pipe()
@@ -101,7 +104,7 @@ class Notarize {
         }
     }
 
-    func waitForProcessing(with uuid: String, username: String, password: String) {
+    private func waitForProcessing(stapleFilePath: String, uuid: String, username: String, password: String) {
         sleep(10)
 
         let task = Process()
@@ -129,10 +132,10 @@ class Notarize {
             switch status {
             case .inProgress:
                 print("notarization in progress, continuing to wait")
-                waitForProcessing(with: uuid, username: username, password: password)
+                waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
             case .success:
                 print("approved!")
-                staple(file: stapleFile)
+                staple(filePath: stapleFilePath)
             case .invalid:
                 if let url = note.notarizationInfo?.logFileUrl {
                     print("the app failed notarization see link for details: \(url)")
@@ -146,7 +149,7 @@ class Notarize {
             if let errors = note.productErrors, errors.contains(where: { $0.code == 1519 }) {
                 print("UUID not found trying again in a few")
                 sleep(10)
-                waitForProcessing(with: uuid, username: username, password: password)
+                waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
             } else {
                 if note.productErrors?.isEmpty ?? false {
                     let outputString = String(data: outdata, encoding: .utf8)
@@ -160,5 +163,50 @@ class Notarize {
             print("unable to get status")
             exit(1)
         }
+    }
+
+    private func zip(filePath: String) -> String {
+        print("zipping")
+
+        guard let filename = NSURL(fileURLWithPath: filePath).lastPathComponent else {
+            print("unable to zip")
+            exit(1)
+        }
+
+        let zipURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(filename)
+            .appendingPathExtension("zip")
+        print(zipURL)
+
+        let task = Process()
+        task.launchPath = "/usr/bin/env"
+        task.arguments = [
+            "ditto", "-c", "-k", "--keepParent",
+            filePath, zipURL.path
+        ]
+
+        let outpipe = Pipe()
+        task.standardOutput = outpipe
+
+        task.launch()
+
+        task.waitUntilExit()
+
+        let outdata = outpipe.fileHandleForReading.readDataToEndOfFile()
+
+
+        if task.terminationStatus == 0 {
+            print("zip success!")
+        } else {
+            if let string = String(data: outdata, encoding: .utf8) {
+                print("zip failed: \(string)")
+                exit(1)
+            } else {
+                print("unable to read out put of staple")
+                exit(1)
+            }
+        }
+
+        return zipURL.path
     }
 }
