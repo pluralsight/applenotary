@@ -18,27 +18,37 @@ class Notarize {
         self.password = password
     }
 
-    func uploadAndStaple(filePath: String) {
-        var uploadPath = filePath
-        let stapleFilePath = filePath
+    func uploadAndStaple(filePaths: [String]) {
 
-        let ext = NSURL(fileURLWithPath: uploadPath).pathExtension
-        if ext == "app" {
-            uploadPath = zip(filePath: uploadPath)
+        var uploadPaths = filePaths
+        let stapleFilePaths = filePaths
+        var uploadUUIDs: [String] = []
+
+        // Uploads
+        for (index, uploadPath) in uploadPaths.enumerated()  {
+            let ext = NSURL(fileURLWithPath: uploadPath).pathExtension
+            if ext == "app" {
+                uploadPaths[index] = zip(filePath: uploadPath)
+            }
+
+            let notarizeUploadResponse = upload(filePath: uploadPaths[index])
+
+            if let uuid = notarizeUploadResponse.notarizationUpload?.RequestUUID {
+                print("start observing status of \(uuid)")
+                uploadUUIDs.append(uuid)
+            } else {
+                print("show errors")
+                notarizeUploadResponse.productErrors?.forEach { error in
+                    print(error)
+                }
+                exit(1)
+            }
         }
 
-        let notarizeUploadResponse = upload(filePath: uploadPath)
+        waitForProcessing(uploadUUIDs: uploadUUIDs, username: username, password: password)
 
-        if let uuid = notarizeUploadResponse.notarizationUpload?.RequestUUID {
-            print("start observing status")
-            waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
-        } else {
-            print("show errors")
-            notarizeUploadResponse.productErrors?.forEach { error in
-                print(error)
-            }
-            exit(1)
-
+        for stapleFilePath in stapleFilePaths {
+            staple(filePath: stapleFilePath)
         }
     }
 
@@ -68,101 +78,6 @@ class Notarize {
         let note = NotarizeUploadResponse.create(from: outdata)
         print("done processing result")
         return note
-    }
-
-    private func staple(filePath: String) {
-        print("stapling")
-        sleep(5) //give apple a few to be read to staple
-        //xcrun stapler staple Pluralsight\ -\ Beta.app
-
-        let task = Process()
-        task.launchPath = "/usr/bin/env"
-        task.arguments = [
-            "xcrun", "stapler",
-            "staple", filePath
-        ]
-
-        let outpipe = Pipe()
-        task.standardOutput = outpipe
-
-        task.launch()
-
-        task.waitUntilExit()
-
-        let outdata = outpipe.fileHandleForReading.readDataToEndOfFile()
-
-        if let string = String(data: outdata, encoding: .utf8) {
-            if string.contains("The staple and validate action worked!") {
-                print("staple success!")
-            } else {
-                print("staple failed: \(string)")
-                exit(1)
-            }
-        } else {
-            print("unable to read out put of staple")
-            exit(1)
-        }
-    }
-
-    private func waitForProcessing(stapleFilePath: String, uuid: String, username: String, password: String) {
-        sleep(10)
-
-        let task = Process()
-        task.launchPath = "/usr/bin/env"
-        task.arguments = [
-            "xcrun", "altool",
-            "-u", username,
-            "-p", password,
-            "--notarization-info", uuid,
-            "--output-format", "xml"
-        ]
-
-        let outpipe = Pipe()
-        task.standardOutput = outpipe
-
-        task.launch()
-
-        task.waitUntilExit()
-
-        let outdata = outpipe.fileHandleForReading.readDataToEndOfFile()
-
-        let note = NotarizeUploadResponse.create(from: outdata)
-
-        if let status = note.notarizationInfo?.status {
-            switch status {
-            case .inProgress:
-                print("notarization in progress, continuing to wait")
-                waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
-            case .success:
-                print("approved!")
-                staple(filePath: stapleFilePath)
-            case .invalid:
-                if let url = note.notarizationInfo?.logFileUrl {
-                    print("the app failed notarization see link for details: \(url)")
-
-                } else {
-                    print("the app failed notarization: \(note)")
-                }
-                exit(1)
-            }
-        } else {
-            if let errors = note.productErrors, errors.contains(where: { $0.code == 1519 }) {
-                print("UUID not found trying again in a few")
-                sleep(10)
-                waitForProcessing(stapleFilePath: stapleFilePath, uuid: uuid, username: username, password: password)
-            } else {
-                if note.productErrors?.isEmpty ?? false {
-                    let outputString = String(data: outdata, encoding: .utf8)
-                    print("an unkown error occurred, showing raw output: \(String(describing: outputString))")
-                } else {
-                    print("an error occured: \(String(describing: note.productErrors))")
-                }
-            }
-
-            //do we have error, is key not found? try again in a second?
-            print("unable to get status")
-            exit(1)
-        }
     }
 
     private func zip(filePath: String) -> String {
@@ -209,4 +124,92 @@ class Notarize {
 
         return zipURL.path
     }
+
+    private func waitForProcessing(uploadUUIDs: [String], username: String, password: String) {
+
+        sleep(10)
+
+        var finished = uploadUUIDs.count
+        let task = Process()
+        task.launchPath = "/usr/bin/env"
+        task.arguments = [
+            "xcrun", "altool",
+            "-u", username,
+            "-p", password,
+            "--notarization-history", "0",
+            "--output-format", "xml"
+        ]
+
+        let outpipe = Pipe()
+        task.standardOutput = outpipe
+
+        task.launch()
+
+        task.waitUntilExit()
+
+        let outdata = outpipe.fileHandleForReading.readDataToEndOfFile()
+        let note = NotarizeUploadResponse.create(from: outdata)
+
+        if let infos =  note.notarizationHistory?.items {
+            for info in infos {
+                if let uuid = info.requestUUID, uploadUUIDs.contains(uuid) {
+                    switch info.status {
+                    case .inProgress:
+                        print("notarization in progress for \(uuid), continuing to wait")
+                    case .success:
+                        print("approved! \(uuid)")
+                        finished -= 1
+                    case .invalid:
+                        if let url = info.logFileUrl {
+                            print("the app failed notarization see link for details: \(url)")
+
+                        } else {
+                            print("the app failed notarization: \(note)")
+                        }
+                        exit(1)
+                    }
+                }
+            }
+        }
+        if finished > 0 {
+            waitForProcessing(uploadUUIDs: uploadUUIDs, username: username, password: password)
+        } else {
+            print("all items notarized!")
+        }
+    }
+
+    private func staple(filePath: String) {
+        print("stapling \(filePath)")
+        sleep(5) //give apple a few to be read to staple
+        //xcrun stapler staple Pluralsight\ -\ Beta.app
+
+        let task = Process()
+        task.launchPath = "/usr/bin/env"
+        task.arguments = [
+            "xcrun", "stapler",
+            "staple", filePath
+        ]
+
+        let outpipe = Pipe()
+        task.standardOutput = outpipe
+
+        task.launch()
+
+        task.waitUntilExit()
+
+        let outdata = outpipe.fileHandleForReading.readDataToEndOfFile()
+
+        if let string = String(data: outdata, encoding: .utf8) {
+            if string.contains("The staple and validate action worked!") {
+                print("staple success!")
+            } else {
+                print("staple failed: \(string)")
+                exit(1)
+            }
+        } else {
+            print("unable to read output of staple")
+            exit(1)
+        }
+    }
+
 }

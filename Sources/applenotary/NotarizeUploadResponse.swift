@@ -10,6 +10,7 @@ struct NotarizeUploadResponse: Decodable {
         case toolVersion = "tool-version"
         case productErrors = "product-errors"
         case notarizationInfo = "notarization-info"
+        case notarizationHistory = "notarization-history"
     }
     
     static func create(from data: Data) -> NotarizeUploadResponse {
@@ -30,7 +31,7 @@ struct NotarizeUploadResponse: Decodable {
     var toolPath: String
     var toolVersion: String
     var productErrors: [NotaryError]?
-    
+    var notarizationHistory: NotarizationHistory?
     var uploadSuccess: Bool {
         return successMessage != nil
     }
