@@ -18,7 +18,6 @@ struct NotarizationInfo: Decodable {
         
     }
     
-    
     var date: Date?
     var logFileUrl: String?
     var requestUUID: String?
